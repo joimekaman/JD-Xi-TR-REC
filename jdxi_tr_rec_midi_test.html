@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <title>JD-Xi式TR-REC MIDIテスト</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111318;
+      --panel: #1b1f27;
+      --panel2: #252b36;
+      --text: #f1f3f7;
+      --muted: #a8b0bd;
+      --accent: #63d6a5;
+      --danger: #ff7777;
+      --border: #3a4250;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: max(16px, env(safe-area-inset-top)) 16px
+               max(24px, env(safe-area-inset-bottom));
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 1.35rem; margin: 0 0 8px; }
+    p { line-height: 1.55; }
+    .muted { color: var(--muted); }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      margin-top: 14px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+    @media (min-width: 620px) {
+      .grid.two { grid-template-columns: 1fr 1fr; }
+    }
+    label {
+      display: block;
+      font-size: .9rem;
+      margin-bottom: 6px;
+      color: var(--muted);
+    }
+    select, input, button {
+      width: 100%;
+      min-height: 46px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      color: var(--text);
+      font-size: 1rem;
+      padding: 10px 12px;
+    }
+    button {
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.primary {
+      background: var(--accent);
+      color: #102019;
+      border-color: transparent;
+    }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .status {
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--panel2);
+      line-height: 1.45;
+    }
+    .status.ok { outline: 1px solid var(--accent); }
+    .status.bad { outline: 1px solid var(--danger); }
+    .readout {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .cell {
+      background: var(--panel2);
+      border-radius: 10px;
+      padding: 12px 8px;
+      text-align: center;
+    }
+    .cell span { display: block; color: var(--muted); font-size: .78rem; }
+    .cell strong { display: block; margin-top: 5px; font-size: 1.3rem; }
+    .velocity-bar {
+      height: 14px;
+      background: #303744;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    .velocity-fill {
+      width: 0%;
+      height: 100%;
+      background: var(--accent);
+      transition: width 70ms linear;
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .row > * { flex: 1; }
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-top: 12px;
+    }
+    .check input {
+      width: 22px;
+      min-height: 22px;
+      margin: 0;
+    }
+    .check label { margin: 0; color: var(--text); }
+    pre {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      max-height: 260px;
+      overflow-y: auto;
+      background: #0b0d11;
+      border-radius: 10px;
+      padding: 12px;
+      font-size: .83rem;
+      line-height: 1.45;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>JD-Xi式TR-REC用 Web MIDI テスト</h1>
+  <p class="muted">
+    外部鍵盤のNote OnとVelocityを受信し、選択したMIDI出力へ転送できるか確認します。
+  </p>
+
+  <section class="panel">
+    <button id="enableMidi" class="primary" type="button">MIDIアクセスを開始</button>
+    <div id="status" class="status" style="margin-top:12px" aria-live="polite">
+      まだMIDIアクセスを開始していません。
+    </div>
+  </section>
+
+  <section class="panel grid two">
+    <div>
+      <label for="midiIn">MIDI入力</label>
+      <select id="midiIn" disabled>
+        <option value="">未選択</option>
+      </select>
+    </div>
+    <div>
+      <label for="midiOut">MIDI出力</label>
+      <select id="midiOut" disabled>
+        <option value="">未選択</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="readout">
+      <div class="cell"><span>ノート</span><strong id="noteName">—</strong></div>
+      <div class="cell"><span>番号</span><strong id="noteNumber">—</strong></div>
+      <div class="cell"><span>Velocity</span><strong id="velocity">—</strong></div>
+    </div>
+    <div class="velocity-bar" aria-label="Velocity">
+      <div id="velocityFill" class="velocity-fill"></div>
+    </div>
+
+    <div class="check">
+      <input id="thru" type="checkbox" checked>
+      <label for="thru">受信したMIDIノートを出力へそのまま転送する</label>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="grid two">
+      <div>
+        <label for="testNote">テスト送信ノート</label>
+        <input id="testNote" type="number" min="0" max="127" value="60">
+      </div>
+      <div>
+        <label for="testVelocity">テストVelocity</label>
+        <input id="testVelocity" type="number" min="1" max="127" value="100">
+      </div>
+    </div>
+    <button id="sendTest" type="button" style="margin-top:12px" disabled>
+      テストノートを送信
+    </button>
+  </section>
+
+  <section class="panel">
+    <div class="row">
+      <strong>MIDIログ</strong>
+      <button id="clearLog" type="button">消去</button>
+    </div>
+    <pre id="log">ログはまだありません。</pre>
+  </section>
+</main>
+
+<script>
+(() => {
+  const enableButton = document.getElementById("enableMidi");
+  const inputSelect = document.getElementById("midiIn");
+  const outputSelect = document.getElementById("midiOut");
+  const statusEl = document.getElementById("status");
+  const noteNameEl = document.getElementById("noteName");
+  const noteNumberEl = document.getElementById("noteNumber");
+  const velocityEl = document.getElementById("velocity");
+  const velocityFill = document.getElementById("velocityFill");
+  const thruCheckbox = document.getElementById("thru");
+  const sendTestButton = document.getElementById("sendTest");
+  const testNoteInput = document.getElementById("testNote");
+  const testVelocityInput = document.getElementById("testVelocity");
+  const logEl = document.getElementById("log");
+  const clearLogButton = document.getElementById("clearLog");
+
+  let midiAccess = null;
+  let activeInput = null;
+  let activeOutput = null;
+  let logLines = [];
+
+  const noteNames = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
+
+  function midiNoteName(note) {
+    return `${noteNames[note % 12]}${Math.floor(note / 12) - 1}`;
+  }
+
+  function addLog(text) {
+    const time = new Date().toLocaleTimeString();
+    logLines.unshift(`[${time}] ${text}`);
+    logLines = logLines.slice(0, 80);
+    logEl.textContent = logLines.join("\n");
+  }
+
+  function setStatus(text, kind = "") {
+    statusEl.textContent = text;
+    statusEl.className = `status ${kind}`;
+  }
+
+  function fillPortSelect(select, ports, previousValue) {
+    select.innerHTML = '<option value="">未選択</option>';
+    for (const port of ports.values()) {
+      const option = document.createElement("option");
+      option.value = port.id;
+      option.textContent = port.name || port.manufacturer || port.id;
+      select.appendChild(option);
+    }
+    if ([...select.options].some(option => option.value === previousValue)) {
+      select.value = previousValue;
+    }
+  }
+
+  function refreshPorts() {
+    if (!midiAccess) return;
+
+    const previousInput = inputSelect.value;
+    const previousOutput = outputSelect.value;
+
+    fillPortSelect(inputSelect, midiAccess.inputs, previousInput);
+    fillPortSelect(outputSelect, midiAccess.outputs, previousOutput);
+
+    inputSelect.disabled = false;
+    outputSelect.disabled = false;
+    sendTestButton.disabled = midiAccess.outputs.size === 0;
+
+    if (!inputSelect.value && midiAccess.inputs.size === 1) {
+      inputSelect.value = [...midiAccess.inputs.values()][0].id;
+    }
+    if (!outputSelect.value && midiAccess.outputs.size === 1) {
+      outputSelect.value = [...midiAccess.outputs.values()][0].id;
+    }
+
+    connectSelectedInput();
+    selectOutput();
+
+    addLog(`ポート更新: 入力 ${midiAccess.inputs.size} / 出力 ${midiAccess.outputs.size}`);
+  }
+
+  function connectSelectedInput() {
+    if (activeInput) {
+      activeInput.onmidimessage = null;
+      activeInput = null;
+    }
+
+    const id = inputSelect.value;
+    if (!id || !midiAccess) return;
+
+    activeInput = midiAccess.inputs.get(id);
+    if (activeInput) {
+      activeInput.onmidimessage = handleMidiMessage;
+      addLog(`入力選択: ${activeInput.name || activeInput.id}`);
+    }
+  }
+
+  function selectOutput() {
+    activeOutput = null;
+    const id = outputSelect.value;
+    if (!id || !midiAccess) {
+      sendTestButton.disabled = true;
+      return;
+    }
+    activeOutput = midiAccess.outputs.get(id);
+    sendTestButton.disabled = !activeOutput;
+    if (activeOutput) addLog(`出力選択: ${activeOutput.name || activeOutput.id}`);
+  }
+
+  function handleMidiMessage(event) {
+    const data = Array.from(event.data);
+    if (data.length < 1) return;
+
+    const status = data[0];
+    const type = status & 0xF0;
+    const channel = (status & 0x0F) + 1;
+    const note = data[1] ?? 0;
+    const velocity = data[2] ?? 0;
+    const isNoteOn = type === 0x90 && velocity > 0;
+    const isNoteOff = type === 0x80 || (type === 0x90 && velocity === 0);
+
+    if (isNoteOn) {
+      noteNameEl.textContent = midiNoteName(note);
+      noteNumberEl.textContent = String(note);
+      velocityEl.textContent = String(velocity);
+      velocityFill.style.width = `${(velocity / 127) * 100}%`;
+      addLog(`Note On  ch${channel}  ${midiNoteName(note)} (${note})  vel ${velocity}`);
+    } else if (isNoteOff) {
+      addLog(`Note Off ch${channel}  ${midiNoteName(note)} (${note})`);
+    } else {
+      addLog(`MIDI: ${data.map(v => v.toString(16).padStart(2, "0")).join(" ")}`);
+    }
+
+    if (thruCheckbox.checked && activeOutput) {
+      activeOutput.send(data);
+    }
+  }
+
+  async function enableMidi() {
+    if (!navigator.requestMIDIAccess) {
+      setStatus(
+        "このブラウザではWeb MIDI APIが見つかりません。MIDIWeb Browserで開いているか確認してください。",
+        "bad"
+      );
+      addLog("navigator.requestMIDIAccess がありません。");
+      return;
+    }
+
+    try {
+      setStatus("MIDIアクセスを要求しています…");
+      midiAccess = await navigator.requestMIDIAccess({ sysex: false });
+      midiAccess.onstatechange = refreshPorts;
+      refreshPorts();
+      setStatus(
+        `MIDIアクセス成功。入力 ${midiAccess.inputs.size}、出力 ${midiAccess.outputs.size} を検出しました。`,
+        "ok"
+      );
+      enableButton.disabled = true;
+      addLog("Web MIDIアクセス成功");
+    } catch (error) {
+      setStatus(`MIDIアクセスに失敗しました: ${error.message || error}`, "bad");
+      addLog(`Web MIDIアクセス失敗: ${error.message || error}`);
+    }
+  }
+
+  function sendTestNote() {
+    if (!activeOutput) {
+      addLog("出力が選択されていません。");
+      return;
+    }
+
+    const note = Math.max(0, Math.min(127, Number(testNoteInput.value) || 60));
+    const velocity = Math.max(1, Math.min(127, Number(testVelocityInput.value) || 100));
+    const channelZeroBased = 9; // MIDI ch10
+
+    activeOutput.send([0x90 | channelZeroBased, note, velocity]);
+    setTimeout(() => {
+      activeOutput?.send([0x80 | channelZeroBased, note, 0]);
+    }, 180);
+
+    addLog(`テスト送信 ch10 ${midiNoteName(note)} (${note}) vel ${velocity}`);
+  }
+
+  enableButton.addEventListener("click", enableMidi);
+  inputSelect.addEventListener("change", connectSelectedInput);
+  outputSelect.addEventListener("change", selectOutput);
+  sendTestButton.addEventListener("click", sendTestNote);
+  clearLogButton.addEventListener("click", () => {
+    logLines = [];
+    logEl.textContent = "ログはまだありません。";
+  });
+})();
+</script>
+</body>
+</html>
